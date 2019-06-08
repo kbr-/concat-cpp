@@ -128,7 +128,13 @@ instance ProductCat Kat where
 
 instance NumCat Kat Int where
     negateC = K $ \ea -> pure $ IntE $ NegE ea
-    addC = K $ \eab -> pure $ IntE $ AddE (PairFirstE eab) (PairSecondE eab)
+    addC = K $ \eab -> do
+        let eab' = VarE "xy"
+        funName <- freshFun
+        newComp $ funComp funName [mkParam "xy"]
+            [ retStmt $ IntE $ AddE (PairFirstE eab') (PairSecondE eab')
+            ]
+        pure $ CallFunE funName eab
     subC = undefined
     mulC = undefined
     powIC = undefined
