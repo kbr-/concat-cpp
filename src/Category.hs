@@ -110,7 +110,7 @@ instance MonoidalPCat Kat where
         ed <- g $ VarE "y"
         funName <- freshFun
         newComp $ funComp funName [mkParam "xy"]
-            [ bindStmt ["x", "y"] eab
+            [ bindStmt ["x", "y"] (VarE "xy")
             , retStmt $ MakePairE ec ed
             ]
         pure $ CallFunE funName eab
