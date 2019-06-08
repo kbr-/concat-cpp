@@ -106,12 +106,11 @@ instance Category Kat where
 
 instance MonoidalPCat Kat where
     K f *** K g = K $ \eab -> do
-        ec <- f $ VarE "x"
-        ed <- g $ VarE "y"
+        ec <- f $ PairFirstE $ VarE "xy"
+        ed <- g $ PairSecondE $ VarE "xy"
         funName <- freshFun
         newComp $ funComp funName [mkParam "xy"]
-            [ bindStmt ["x", "y"] (VarE "xy")
-            , retStmt $ MakePairE ec ed
+            [ retStmt $ MakePairE ec ed
             ]
         pure $ CallFunE funName eab
 
