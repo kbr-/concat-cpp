@@ -7,12 +7,13 @@
 module Main where
 
 import ConCat.AltCat (toCcc)
+import ConCat.Rebox ()
 import Prelude hiding ((.), id, curry, uncurry)
 
 import Category
 
-fun :: a -> a
-fun x = x
+fun :: Num a => a -> a
+fun x = x + x
 
 main :: IO ()
-main = print $ runKat 42 (toCcc (fun @Int))
+main = putStrLn $ runKat 21 (toCcc (fun @Int))

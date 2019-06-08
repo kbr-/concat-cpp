@@ -60,11 +60,15 @@ mkParam = id
 
 -- Components
 data Comp
-    = FunComp FunName [Param] [Stmt]
+    = FunComp Typ FunName [Param] [Stmt]
+
+data Typ
+    = AutoT
+    | IntT
 
 -- Function definition component
 funComp :: FunName -> [Param] -> [Stmt] -> Comp
-funComp = FunComp
+funComp = FunComp AutoT
 
 data IntExpr
     = ConstE Int
@@ -140,7 +144,7 @@ printIntExpr (NegE e) = "-(" ++ printExpr e ++ ")"
 printExpr :: Expr a -> String
 printExpr (IntE ie) = printIntExpr ie
 printExpr (VarE v) = v
-printExpr (MakePairE ea eb) = "{" ++ printExpr ea ++ ", " ++ printExpr eb ++ "}"
+printExpr (MakePairE ea eb) = "make_pair(" ++ printExpr ea ++ ", " ++ printExpr eb ++ ")"
 printExpr (PairFirstE e) = printExpr e ++ ".first"
 printExpr (PairSecondE e) = printExpr e ++ ".second"
 printExpr (CallFunE f e) = f ++ "(" ++ printExpr e ++ ")"
@@ -153,18 +157,26 @@ printStmt' (RetStmt ea) = "return " ++ printExpr ea
 printStmt' (BindStmt vs ea) = "auto [" ++ intercalate ", " vs ++ "] = " ++ printExpr ea
 printStmt' (ExprStmt ea) = printExpr ea
 
+printTyp :: Typ -> String
+printTyp AutoT = "auto"
+printTyp IntT = "int"
+
 printComp :: Comp -> String
-printComp (FunComp name params stmts) =
-    "auto " ++ name ++ "(" ++ intercalate ", " (map printParam params) ++ ") {\n" ++
+printComp (FunComp typ name params stmts) =
+    printTyp typ ++ " " ++ name ++ "(" ++ intercalate ", " (map printParam params) ++ ") {\n" ++
     intercalate "\n" (map printStmt stmts) ++
-    "}"
+    "\n}"
 
 runM :: M a -> String
-runM m = intercalate "\n\n" $ map printComp $ snd $ execState m (0, [])
+runM m =
+    "#include <utility>\n" ++
+    "using namespace std;\n\n" ++
+    (intercalate "\n\n" $ map printComp $ reverse $ snd $ execState m (0, []))
 
 runKat  :: Int -> Kat Int b -> String
 runKat x (K f) = runM $ do
     eb <- f (IntE $ ConstE x)
-    newComp $ funComp "main" []
+    newComp $ FunComp IntT "main" []
         [ exprStmt eb
+        , retStmt (IntE $ ConstE 0)
         ]
