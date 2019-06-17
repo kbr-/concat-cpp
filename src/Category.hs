@@ -36,6 +36,8 @@ data Expr :: Type -> Type where
     IntConstE :: Int -> Expr Int
     NegE :: Expr Int -> Expr Int
     AddE :: Expr Int -> Expr Int -> Expr Int
+    SubE :: Expr Int -> Expr Int -> Expr Int
+    MulE :: Expr Int -> Expr Int -> Expr Int
 
     BoolConstE :: Bool -> Expr Bool
 
@@ -104,8 +106,12 @@ instance NumCat Kat Int where
     addC = Kat $ \case
         PairE a b -> AddE a b
         e -> AddE (FirstE e) (SecondE e)
-    subC = undefined
-    mulC = undefined
+    subC = Kat $ \case
+        PairE a b -> SubE a b
+        e -> SubE (FirstE e) (SecondE e)
+    mulC = Kat $ \case
+        PairE a b -> MulE a b
+        e -> MulE (FirstE e) (SecondE e)
     powIC = undefined
 
 indent :: Int -> String -> String
@@ -124,7 +130,9 @@ printExpr _ UnitE = "Unit{}"
 
 printExpr _ (IntConstE x) = show x
 printExpr e (NegE a) = "-(" ++ printExpr e a ++ ")"
-printExpr e (AddE a b) = printExpr e a ++ " + " ++ printExpr e b
+printExpr e (AddE a b) = "(" ++ printExpr e a ++ ") + (" ++ printExpr e b ++ ")"
+printExpr e (SubE a b) = "(" ++ printExpr e a ++ ") - (" ++ printExpr e b ++ ")"
+printExpr e (MulE a b) = "(" ++ printExpr e a ++ ") * (" ++ printExpr e b ++ ")"
 
 printExpr _ (BoolConstE b) = if b then "true" else "false"
 
