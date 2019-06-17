@@ -1,19 +1,8 @@
-{-# LANGUAGE TypeFamilies, TypeOperators, ConstraintKinds #-}
-{-# LANGUAGE FlexibleInstances, FlexibleContexts, MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies, TypeOperators #-}
+{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses #-}
 {-# LANGUAGE ViewPatterns, TupleSections #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving, StandaloneDeriving #-}
-{-# LANGUAGE ExistentialQuantification, TypeSynonymInstances, GADTs #-}
-{-# LANGUAGE Rank2Types, ScopedTypeVariables #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE RecursiveDo #-}
-{-# LANGUAGE DeriveFunctor, DeriveDataTypeable #-}
-{-# LANGUAGE TypeApplications, AllowAmbiguousTypes #-}
-{-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE UndecidableSuperClasses #-}
 {-# LANGUAGE NoStarIsType #-}
 
 {-# OPTIONS_GHC -Wall #-}
