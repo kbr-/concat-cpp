@@ -156,16 +156,16 @@ printLam e f =
   where
     e' = e { lastVar = lastVar e + 1, level = level e + 1 }
 
-runM :: Kat () a -> String
-runM (Kat f) = printExpr (Env 0 1) $ f UnitE
-
-runKatExpr :: ConstCat Kat a => a -> Kat a b -> String
-runKatExpr x f = runM $ f . const x
+printConst :: Kat () a -> String
+printConst (Kat f) = printExpr (Env 0 1) $ f UnitE
 
 runKat :: ConstCat Kat a => a -> Kat a b -> String
-runKat x f =
-    "#include \"lib.h\"\n" ++
+runKat x (Kat f) =
+    "#include <utility>\n" ++
     "using namespace std;\n\n" ++
+    "auto f(auto x0) {\n" ++
+    indent 1 ("return " ++ printExpr (Env 1 1) (f $ VarE 0)) ++ ";\n" ++
+    "}\n\n" ++
     "int main() {\n" ++
-    "    " ++ runKatExpr x f ++ ";\n" ++
+    indent 1 (printCall "f" [printConst $ const x]) ++ ";\n" ++
     "}"
