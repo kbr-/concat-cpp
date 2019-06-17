@@ -27,18 +27,7 @@ import Data.Kind (Type)
 import ConCat.Category
 import ConCat.Misc ((:*))
 
-type VarName = String
-type FunName = String
-
--- Statements
-data Stmt :: Type where
-    RetStmt :: Expr a -> Stmt
-
--- Function parameters
-type Param = VarName
-
-mkParam :: VarName -> Param
-mkParam = id
+type VarId = Int
 
 -- A C++ expression
 data Expr :: Type -> Type where
@@ -46,27 +35,20 @@ data Expr :: Type -> Type where
 
     IntConstE :: Int -> Expr Int
     NegE :: Expr Int -> Expr Int
-    AddE :: Expr (Int :* Int) -> Expr Int
+    AddE :: Expr Int -> Expr Int -> Expr Int
 
     BoolConstE :: Bool -> Expr Bool
 
-    VarE :: VarName -> Expr a
+    PairE :: Expr a -> Expr b -> Expr (a :* b)
+    FirstE :: Expr (a :* b) -> Expr a
+    SecondE :: Expr (a :* b) -> Expr b
 
-    CombineE :: Expr (a -> c) -> Expr (b -> d) -> Expr (a :* b) -> Expr (c :* d)
+    LamE :: (Expr a -> Expr b) -> Expr (a -> b)
+    CallE :: Expr (a -> b) -> Expr a -> Expr b
 
-    PairFirstE :: Expr (a :* b) -> Expr a
-    PairSecondE :: Expr (a :* b) -> Expr b
-    DupE :: Expr a -> Expr (a :* a)
-
-    CurryE :: Expr (a :* b -> c) -> Expr a -> Expr (b -> c)
-    UncurryE :: Expr (a -> b -> c) -> Expr (a :* b) -> Expr c
-
-    LamE :: Param -> [Stmt] -> Expr (a -> b)
+    VarE :: Int -> Expr a
 
 newtype Kat a b = Kat { unKat :: Expr a -> Expr b }
-
-toLamE :: Kat a b -> Expr (a -> b)
-toLamE (Kat f) = LamE (mkParam "x") [RetStmt $ f (VarE "x")]
 
 instance Category Kat where
  -- id :: a `k` a
@@ -76,21 +58,33 @@ instance Category Kat where
 
 instance MonoidalPCat Kat where
  -- (***) :: (a `k` c) -> (b `k` d) -> (a :* b `k` c :* d)
-    f *** g = Kat $ CombineE (toLamE f) (toLamE g)
+    Kat f *** Kat g = Kat $ \case
+        PairE a b -> PairE (f a) (g b)
+        e -> PairE (f $ FirstE e) (g $ SecondE e)
 
 instance ProductCat Kat where
  -- exl :: (a :* b) `k` a
  -- exr :: (a :* b) `k` b
  -- dup :: a `k` (a :* a)
-    exl = Kat PairFirstE
-    exr = Kat PairSecondE
-    dup = Kat DupE
+    exl = Kat $ \case
+        PairE a _ -> a
+        e -> FirstE e
+    exr = Kat $ \case
+        PairE _ b -> b
+        e -> SecondE e
+    dup = Kat $ \a -> PairE a a
 
 instance ClosedCat Kat where
  -- curry :: (a :* b `k` c) -> a `k` (b :=> c)
  -- uncurry :: (a `k` b :=> c) -> a :* b `k` c
-    curry f = Kat $ CurryE (toLamE f)
-    uncurry f = Kat $ UncurryE (toLamE f)
+    curry (Kat f) = Kat $ \a -> LamE $ \b -> f $ PairE a b
+    uncurry (Kat f) = Kat $ \case
+        PairE a b -> case f a of
+            LamE g -> g b
+            e -> CallE e b
+        e -> case f (FirstE e) of
+            LamE g -> g (SecondE e)
+            e' -> CallE e' (SecondE e)
 
 -- instance TerminalCat Kat where
 --     it = K $ const $ pure UnitE
@@ -107,59 +101,55 @@ instance NumCat Kat Int where
  -- negateC :: Int `k` Int
  -- addC :: Int :* Int `k` Int
     negateC = Kat NegE
-    addC = Kat AddE
+    addC = Kat $ \case
+        PairE a b -> AddE a b
+        e -> AddE (FirstE e) (SecondE e)
     subC = undefined
     mulC = undefined
     powIC = undefined
 
 indent :: Int -> String -> String
-indent level s = concat (replicate level "    ") ++ s
-
-printParam :: Param -> String
-printParam param = "auto " ++ param
+indent l s = concat (replicate l "    ") ++ s
 
 printCall :: String -> [String] -> String
 printCall f ps = f ++ "(" ++ intercalate ", " ps ++ ")"
 
-printExpr :: Int -> Expr a -> String
+data Env = Env
+    { lastVar :: VarId
+    , level :: Int
+    }
+
+printExpr :: Env -> Expr a -> String
 printExpr _ UnitE = "Unit{}"
 
 printExpr _ (IntConstE x) = show x
-printExpr l (NegE e) = "-(" ++ printExpr l e ++ ")"
-printExpr l (AddE e) = printCall "add" [printExpr l e]
+printExpr e (NegE a) = "-(" ++ printExpr e a ++ ")"
+printExpr e (AddE a b) = printExpr e a ++ " + " ++ printExpr e b
 
 printExpr _ (BoolConstE b) = if b then "true" else "false"
 
-printExpr _ (VarE v) = v
+printExpr _ (VarE v) = "x" ++ show v
 
-printExpr l (CombineE f g ab) = printCall "combine" [printExpr l f, printExpr l g, printExpr l ab]
+printExpr e (PairE a b) = printCall "std::make_pair" [printExpr e a, printExpr e b]
+printExpr e (FirstE x) = printExpr e x ++ ".first"
+printExpr e (SecondE x) = printExpr e x ++ ".second"
 
-printExpr l (PairFirstE e) = printExpr l e ++ ".first"
-printExpr l (PairSecondE e) = printExpr l e ++ ".second"
-printExpr l (DupE e) = printCall "dupl" [printExpr l e]
+printExpr e (LamE f) = printLam e f
+printExpr e (CallE f a) = printCall (printExpr e f) [printExpr e a]
 
-printExpr l (CurryE f a) = printCall "curry" [printExpr l f, printExpr l a]
-printExpr l (UncurryE f ab) = printCall "uncurry" [printExpr l f, printExpr l ab]
+printCapture :: Env -> String
+printCapture e = intercalate ", " $ map (printExpr e . VarE) [0..lastVar e - 1]
 
-printExpr l (LamE p b) = printLam l p b
-
-printLam :: Int -> Param -> [Stmt] -> String
-printLam l p body =
-    "[=] (" ++ printParam p ++ ") {\n" ++
-    printBody (l + 1) body ++ "\n" ++
-    indent l "}"
-
-printStmt :: Int -> Stmt -> String
-printStmt l s = indent l (printStmt' l s) ++ ";"
-
-printStmt' :: Int -> Stmt -> String
-printStmt' l (RetStmt ea) = "return " ++ printExpr l ea
-
-printBody :: Int -> [Stmt] -> String
-printBody l = intercalate "\n" . map (printStmt l)
+printLam :: Env -> (Expr a -> Expr b) -> String
+printLam e f =
+    "[" ++ printCapture e ++ "] (auto " ++ printExpr e (VarE $ lastVar e) ++ ") {\n" ++
+    indent (level e') "return " ++ printExpr e' (f $ VarE $ lastVar e) ++ ";\n" ++
+    indent (level e) "}"
+  where
+    e' = e { lastVar = lastVar e + 1, level = level e + 1 }
 
 runM :: Kat () a -> String
-runM (Kat f) = printExpr 1 $ f UnitE
+runM (Kat f) = printExpr (Env 0 1) $ f UnitE
 
 runKatExpr :: ConstCat Kat a => a -> Kat a b -> String
 runKatExpr x f = runM $ f . const x

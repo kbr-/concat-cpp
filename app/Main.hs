@@ -5,7 +5,7 @@
 {-# OPTIONS_GHC -fsimpl-tick-factor=2800 #-}
 {-# OPTIONS_GHC -fexpose-all-unfoldings #-}
 {-# OPTIONS_GHC -fplugin-opt=ConCat.Plugin:showResiduals #-}
-{-# OPTIONS_GHC -fplugin-opt=ConCat.Plugin:trace #-}
+-- {-# OPTIONS_GHC -fplugin-opt=ConCat.Plugin:trace #-}
 
 module Main where
 
@@ -26,8 +26,8 @@ fun x = h (fst x) (snd x) + (snd x)
 -- f :: Int -> Int
 -- f = fun . gun
 
-f :: Int -> Int -> Int
-f x y = x + y
+f :: Int -> (Int, Int) -> Int -> Int
+f x (y, z) a = x + y + z + a
 
 main :: IO ()
 main = putStrLn $ runKat 21 (toCcc f)
