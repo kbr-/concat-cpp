@@ -30,7 +30,8 @@ fun x = h (fst x) (snd x) + (snd x)
 -- f x (y, z) a = x - (y + z) * a
 
 f :: Int -> Int -> Int
-f x y = sum [3 + y, y + 1, x + 2]
+f x y | y == 0 = sum [3 + y, y + 1, x + 2]
+f x y = if y > 0 then y + x else y - x
 
 main :: IO ()
 main = putStrLn $ runKat 21 (toCcc f)

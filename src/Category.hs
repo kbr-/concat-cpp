@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeFamilies, TypeOperators #-}
-{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, FlexibleContexts, MultiParamTypeClasses #-}
 {-# LANGUAGE ViewPatterns, TupleSections #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
@@ -20,8 +20,6 @@ type VarId = Int
 
 -- A C++ expression
 data Expr :: Type -> Type where
-    UnitE :: Expr ()
-
     IntConstE :: Int -> Expr Int
     NegE :: Expr Int -> Expr Int
     AddE :: Expr Int -> Expr Int -> Expr Int
@@ -29,6 +27,19 @@ data Expr :: Type -> Type where
     MulE :: Expr Int -> Expr Int -> Expr Int
 
     BoolConstE :: Bool -> Expr Bool
+    NotE :: Expr Bool -> Expr Bool
+    AndE :: Expr Bool -> Expr Bool -> Expr Bool
+    OrE :: Expr Bool -> Expr Bool -> Expr Bool
+    XorE :: Expr Bool -> Expr Bool -> Expr Bool
+
+    IfE :: Expr Bool -> Expr a -> Expr a -> Expr a
+
+    EqE :: Expr a -> Expr a -> Expr Bool
+
+    LtE :: Expr Int -> Expr Int -> Expr Bool
+    GtE :: Expr Int -> Expr Int -> Expr Bool
+    LeE :: Expr Int -> Expr Int -> Expr Bool
+    GeE :: Expr Int -> Expr Int -> Expr Bool
 
     PairE :: Expr a -> Expr b -> Expr (a :* b)
     FirstE :: Expr (a :* b) -> Expr a
@@ -85,23 +96,45 @@ instance ConstCat Kat Int where
     const x = Kat $ const (IntConstE x)
 instance ConstCat Kat Bool where
     const x = Kat $ const (BoolConstE x)
-instance ConstCat Kat () where
-    const _ = Kat $ const UnitE
+
+mapPair :: (Expr a -> Expr b -> Expr c) -> Expr (a :* b) -> Expr c
+mapPair f (PairE a b) = f a b
+mapPair f e = f (FirstE e) (SecondE e)
+
+liftE2 :: (Expr a -> Expr b -> Expr c) -> Kat (a :* b) c
+liftE2 = Kat . mapPair
+
+instance BoolCat Kat where
+ -- notC :: Bool `k` Bool
+ -- andC :: Bool :* Bool `k` Bool
+    notC = Kat NotE
+    andC = liftE2 AndE
+    orC  = liftE2 OrE
+    xorC = liftE2 XorE
 
 instance NumCat Kat Int where
  -- negateC :: Int `k` Int
  -- addC :: Int :* Int `k` Int
     negateC = Kat NegE
-    addC = Kat $ \case
-        PairE a b -> AddE a b
-        e -> AddE (FirstE e) (SecondE e)
-    subC = Kat $ \case
-        PairE a b -> SubE a b
-        e -> SubE (FirstE e) (SecondE e)
-    mulC = Kat $ \case
-        PairE a b -> MulE a b
-        e -> MulE (FirstE e) (SecondE e)
+    addC = liftE2 AddE
+    subC = liftE2 SubE
+    mulC = liftE2 MulE
     powIC = undefined
+
+instance IfCat Kat a where
+ -- ifC :: Bool :* (a :* a) `k` a
+    ifC = liftE2 $ mapPair . IfE
+
+instance EqCat Kat a where
+ -- equal :: a :* a `k` Bool
+    equal = liftE2 EqE
+
+instance OrdCat Kat Int where
+ -- lessThan :: Int :* Int `k` Bool
+    lessThan = liftE2 LtE
+    greaterThan = liftE2 GtE
+    lessThanOrEqual = liftE2 LeE
+    greaterThanOrEqual = liftE2 GeE
 
 indent :: Int -> String -> String
 indent l s = concat (replicate l "    ") ++ s
@@ -114,18 +147,33 @@ data Env = Env
     , level :: Int
     }
 
-printExpr :: Env -> Expr a -> String
-printExpr _ UnitE = "Unit{}"
+printBinOp :: Env -> Expr a -> Expr b -> String -> String
+printBinOp e a b o = "(" ++ printExpr e a ++ " " ++ o ++ " " ++ printExpr e b ++ ")"
 
+printUnOp :: Env -> Expr a -> String -> String
+printUnOp e a o = "(" ++ o ++ printExpr e a ++ ")"
+
+printExpr :: Env -> Expr a -> String
 printExpr _ (IntConstE x) = show x
-printExpr e (NegE a) = "-(" ++ printExpr e a ++ ")"
-printExpr e (AddE a b) = "(" ++ printExpr e a ++ ") + (" ++ printExpr e b ++ ")"
-printExpr e (SubE a b) = "(" ++ printExpr e a ++ ") - (" ++ printExpr e b ++ ")"
-printExpr e (MulE a b) = "(" ++ printExpr e a ++ ") * (" ++ printExpr e b ++ ")"
+printExpr e (NegE a) = printUnOp e a "-"
+printExpr e (AddE a b) = printBinOp e a b "+"
+printExpr e (SubE a b) = printBinOp e a b "-"
+printExpr e (MulE a b) = printBinOp e a b "*"
 
 printExpr _ (BoolConstE b) = if b then "true" else "false"
+printExpr e (NotE a) = printUnOp e a "!"
+printExpr e (AndE a b) = printBinOp e a b "&&"
+printExpr e (OrE a b) = printBinOp e a b "||"
+printExpr e (XorE a b) = printBinOp e a b "^"
 
-printExpr _ (VarE v) = "x" ++ show v
+printExpr e (IfE b x y) = "(" ++ printExpr e b ++ " ? " ++ printExpr e x ++ " : " ++ printExpr e y ++ ")"
+
+printExpr e (EqE x y) = printBinOp e x y "=="
+
+printExpr e (LtE a b) = printBinOp e a b "<"
+printExpr e (GtE a b) = printBinOp e a b ">"
+printExpr e (LeE a b) = printBinOp e a b "<="
+printExpr e (GeE a b) = printBinOp e a b ">="
 
 printExpr e (PairE a b) = printCall "std::make_pair" [printExpr e a, printExpr e b]
 printExpr e (FirstE x) = printExpr e x ++ ".first"
@@ -133,6 +181,8 @@ printExpr e (SecondE x) = printExpr e x ++ ".second"
 
 printExpr e (LamE f) = printLam e f
 printExpr e (CallE f a) = printCall (printExpr e f) [printExpr e a]
+
+printExpr _ (VarE v) = "x" ++ show v
 
 printCapture :: Env -> String
 printCapture e = intercalate ", " $ map (printExpr e . VarE) [0..lastVar e - 1]
@@ -145,8 +195,8 @@ printLam e f =
   where
     e' = e { lastVar = lastVar e + 1, level = level e + 1 }
 
-printConst :: Kat () a -> String
-printConst (Kat f) = printExpr (Env 0 1) $ f UnitE
+printConst :: ConstCat Kat a => a -> String
+printConst x = case const x of Kat f -> printExpr (Env 0 1) (f $ IntConstE 0)
 
 runKat :: ConstCat Kat a => a -> Kat a b -> String
 runKat x (Kat f) =
@@ -156,5 +206,5 @@ runKat x (Kat f) =
     indent 1 ("return " ++ printExpr (Env 1 1) (f $ VarE 0)) ++ ";\n" ++
     "}\n\n" ++
     "int main() {\n" ++
-    indent 1 (printCall "f" [printConst $ const x]) ++ ";\n" ++
+    indent 1 (printCall "f" [printConst x]) ++ ";\n" ++
     "}"
