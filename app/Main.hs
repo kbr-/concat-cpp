@@ -26,11 +26,8 @@ fun x = h (fst x) (snd x) + (snd x)
 -- f :: Int -> Int
 -- f = fun . gun
 
--- f :: Int -> Int -> Int
--- f x y = x + y
-
-f :: Int -> Either Int Bool
-f x = inl x
+f :: Int -> Int -> Int
+f x y = x + y
 
 main :: IO ()
 main = putStrLn $ runKat 21 (toCcc f)

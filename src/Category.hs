@@ -24,33 +24,8 @@ import Prelude hiding (id,(.),const)
 
 import Data.List (intercalate)
 import Data.Kind (Type)
-import Data.Constraint (Dict(..),(:-)(..))
-import Control.Arrow (Kleisli(..))
-import Control.Monad.Identity
 import ConCat.Category
-import ConCat.Misc ((:*),(:+))
-
-class IsTyp a where
-    printTyp :: String
-
-instance IsTyp Int where
-    printTyp = "int"
-
-instance IsTyp Bool where
-    printTyp = "bool"
-
-instance IsTyp () where
-    printTyp = "Unit"
-
-instance (IsTyp a, IsTyp b) => IsTyp (a :* b) where
-    printTyp = "std::pair<" ++ printTyp @a ++ ", " ++ printTyp @b ++ ">"
-
-instance (IsTyp a, IsTyp b) => IsTyp (a :+ b) where
-    printTyp = "Sum<" ++ printTyp @a ++ ", " ++ printTyp @b ++ ">"
-
-instance (IsTyp a, IsTyp b) => IsTyp (a -> b) where
-    -- can we do better?
-    printTyp = "std::function<" ++ printTyp @b ++ "(" ++ printTyp @a ++ ")>"
+import ConCat.Misc ((:*))
 
 type VarName = String
 type FunName = String
@@ -86,65 +61,53 @@ data Expr :: Type -> Type where
     CurryE :: Expr (a :* b -> c) -> Expr a -> Expr (b -> c)
     UncurryE :: Expr (a -> b -> c) -> Expr (a :* b) -> Expr c
 
-    SplitE :: Expr (c -> a) -> Expr (d -> b) -> Expr (c :+ d) -> Expr (a :+ b)
-
-    InlE :: IsTyp b => Expr a -> Expr (a :+ b)
-    InrE :: IsTyp a => Expr b -> Expr (a :+ b)
-    JamE :: Expr (a :+ a) -> Expr a
-
     LamE :: Param -> [Stmt] -> Expr (a -> b)
 
-type M = Identity -- for now...
-newtype Kat a b = Kat { unKat :: Kleisli M (Expr a) (Expr b) }
+newtype Kat a b = Kat { unKat :: Expr a -> Expr b }
 
-pattern K :: (Expr a -> M (Expr b)) -> Kat a b
-pattern K f = Kat (Kleisli f)
-
-toLamE :: Kat a b -> M (Expr (a -> b))
-toLamE (Kat (Kleisli f)) = f (VarE "x") >>= \eb -> pure $ LamE (mkParam "x") [RetStmt eb]
+toLamE :: Kat a b -> Expr (a -> b)
+toLamE (Kat f) = LamE (mkParam "x") [RetStmt $ f (VarE "x")]
 
 instance Category Kat where
-    type Ok Kat = IsTyp
+ -- id :: a `k` a
+ -- (.) :: (b `k` c) -> (a `k` b) -> a `k` c
     id = Kat id
     Kat f . Kat g = Kat (f . g)
 
-instance OpCon (:*) (Sat IsTyp) where inOp = Entail (Sub Dict)
-instance OpCon (:+) (Sat IsTyp) where inOp = Entail (Sub Dict)
-instance OpCon (->) (Sat IsTyp) where inOp = Entail (Sub Dict)
-
 instance MonoidalPCat Kat where
-    f *** g = K $ \eab -> CombineE <$> toLamE f <*> toLamE g <*> pure eab
+ -- (***) :: (a `k` c) -> (b `k` d) -> (a :* b `k` c :* d)
+    f *** g = Kat $ CombineE (toLamE f) (toLamE g)
 
 instance ProductCat Kat where
-    exl = K $ pure . PairFirstE
-    exr = K $ pure . PairSecondE
-    dup = K $ pure . DupE
+ -- exl :: (a :* b) `k` a
+ -- exr :: (a :* b) `k` b
+ -- dup :: a `k` (a :* a)
+    exl = Kat PairFirstE
+    exr = Kat PairSecondE
+    dup = Kat DupE
 
 instance ClosedCat Kat where
-    curry f = K $ \ea -> CurryE <$> toLamE f <*> pure ea
-    uncurry f = K $ \eab -> UncurryE <$> toLamE f <*> pure eab
+ -- curry :: (a :* b `k` c) -> a `k` (b :=> c)
+ -- uncurry :: (a `k` b :=> c) -> a :* b `k` c
+    curry f = Kat $ CurryE (toLamE f)
+    uncurry f = Kat $ UncurryE (toLamE f)
 
-instance TerminalCat Kat where
-    it = K $ const $ pure UnitE
-
-instance MonoidalSCat Kat where
-    f +++ g = K $ \eab -> SplitE <$> toLamE f <*> toLamE g <*> pure eab
-
-instance CoproductCat Kat where
-    inl = K $ pure . InlE
-    inr = K $ pure . InrE
-    jam = K $ pure . JamE
+-- instance TerminalCat Kat where
+--     it = K $ const $ pure UnitE
 
 instance ConstCat Kat Int where
-    const x = K $ const $ pure $ IntConstE x
+ -- const :: Int -> a `k` Int
+    const x = Kat $ const (IntConstE x)
 instance ConstCat Kat Bool where
-    const x = K $ const $ pure $ BoolConstE x
+    const x = Kat $ const (BoolConstE x)
 instance ConstCat Kat () where
-    const _ = K $ const $ pure UnitE
+    const _ = Kat $ const UnitE
 
 instance NumCat Kat Int where
-    negateC = K $ pure . NegE
-    addC = K $ pure . AddE
+ -- negateC :: Int `k` Int
+ -- addC :: Int :* Int `k` Int
+    negateC = Kat NegE
+    addC = Kat AddE
     subC = undefined
     mulC = undefined
     powIC = undefined
@@ -178,22 +141,7 @@ printExpr l (DupE e) = printCall "dupl" [printExpr l e]
 printExpr l (CurryE f a) = printCall "curry" [printExpr l f, printExpr l a]
 printExpr l (UncurryE f ab) = printCall "uncurry" [printExpr l f, printExpr l ab]
 
-printExpr l (SplitE f g cd) = printCall "split" [printExpr l f, printExpr l g, printExpr l cd]
-
--- C++ needs to be given the type of the other element of the pair.
-printExpr l e@(InlE _) = printInl l e
-printExpr l e@(InrE _) = printInr l e
-printExpr l (JamE e) = printCall "jam" [printExpr l e]
-
 printExpr l (LamE p b) = printLam l p b
-
-printInl :: forall a b. IsTyp b => Int -> Expr (a :+ b) -> String
-printInl l (InlE e) = printCall ("inl<" ++ printTyp @b ++ ">") [printExpr l e]
-printInl _ _ = error "printInl"
-
-printInr :: forall a b. IsTyp a => Int -> Expr (a :+ b) -> String
-printInr l (InlE e) = printCall ("inr<" ++ printTyp @a ++ ">") [printExpr l e]
-printInr _ _ = error "printInr"
 
 printLam :: Int -> Param -> [Stmt] -> String
 printLam l p body =
@@ -211,12 +159,12 @@ printBody :: Int -> [Stmt] -> String
 printBody l = intercalate "\n" . map (printStmt l)
 
 runM :: Kat () a -> String
-runM (Kat (Kleisli f)) = printExpr 1 . runIdentity $ f UnitE
+runM (Kat f) = printExpr 1 $ f UnitE
 
-runKatExpr :: (IsTyp a, IsTyp b, ConstCat Kat a) => a -> Kat a b -> String
+runKatExpr :: ConstCat Kat a => a -> Kat a b -> String
 runKatExpr x f = runM $ f . const x
 
-runKat :: (IsTyp a, IsTyp b, ConstCat Kat a) => a -> Kat a b -> String
+runKat :: ConstCat Kat a => a -> Kat a b -> String
 runKat x f =
     "#include \"lib.h\"\n" ++
     "using namespace std;\n\n" ++
